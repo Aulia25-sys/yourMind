@@ -521,7 +521,7 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 # ── Constants ──────────────────────────────────────────────────
 M1_PATH = "ulss104/yourMind-model1-binary"
 M2_PATH = "ulss104/yourMind-model2-multiclass"
-MAX_LENGTH = 128
+MAX_LENGTH = 256
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 DESCRIPTIONS = {
