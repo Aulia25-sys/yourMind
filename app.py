@@ -6,7 +6,7 @@ import re
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel, PeftConfig
 
-st.set_page_config(page_title="MindTrace", page_icon="🧠", layout="centered")
+st.set_page_config(page_title="YourMind", page_icon="🧠", layout="centered")
 
 st.markdown("""
 <style>
@@ -514,8 +514,8 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 """, unsafe_allow_html=True)
 
 # ── Constants ──────────────────────────────────────────────────
-M1_PATH    = "./model_1_binary"
-M2_PATH    = "./model_2_multiclass"
+M1_PATH = "ulss104/yourMind-model1-binary"
+M2_PATH = "ulss104/yourMind-model2-multiclass"
 MAX_LENGTH = 128
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -581,7 +581,7 @@ def predict(text, tok, model, le):
 st.markdown("""
 <div class="hero">
   <div class="hero-eyebrow"><span class="hero-eyebrow-dot"></span>Cognitive Intelligence</div>
-  <div class="hero-title">MindTrace</div>
+  <div class="hero-title">Your Mind?</div>
   <div class="hero-sub">
     Deteksi dan klasifikasi cognitive distortion dari teks bahasa Indonesia
     menggunakan two-stage IndoBERT + LoRA.
@@ -591,6 +591,10 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+# token
+from huggingface_hub import login
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
 # ── Load model ─────────────────────────────────────────────────
 with st.spinner("Memuat model..."):
@@ -721,7 +725,7 @@ if run:
 # ── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="mt-footer">
-  MindTrace &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA &nbsp;·&nbsp;
+  Your Mind &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA &nbsp;·&nbsp;
   Dataset: Cognitive Distortion Bahasa Indonesia
 </div>
 """, unsafe_allow_html=True)
