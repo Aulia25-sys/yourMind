@@ -545,12 +545,12 @@ SAMPLES = [
 ]
 
 # ── Helpers ────────────────────────────────────────────────────
-
 def clean_text_light(text: str) -> str:
     text = str(text).lower()
     text = re.sub(r"http\S+|www\S+", " ", text)
     text = re.sub(r"@\w+", " ", text)
     text = re.sub(r"#", " ", text)
+    text = re.sub(r"\$", " ", text)   # hapus $ tapi tidak ekstrak dulu
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -580,18 +580,12 @@ def load_models():
     return tok, model1, le1, model2, le2
 
 def predict(text, tok, model, le):
-    # Gunakan clean_text_light, BUKAN build_m1_text
     inp = tok(clean_text_light(text), return_tensors="pt", truncation=True,
                padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
         logits = model(**inp).logits
         probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
-    if probs.ndim == 0:
-        probs = np.array([1 - probs, probs])
-    pid = int(np.argmax(probs))
-    return le.inverse_transform([pid])[0], float(probs[pid])
-
     
     # Menghindari error bila output probabilitas berupa skalar (binary class dengan single output logit)
     if probs.ndim == 0:
@@ -730,7 +724,7 @@ if run:
             safe_text = text_input[:120].replace('$', '\\$')
             if len(text_input) > 120:
                 safe_text += "…"
-            safe_cleaned = clean_text(text_input)[:100].replace('$', '\\$')
+            safe_cleaned = clean_text_light(text_input)[:100].replace('$', '\\$')
             st.markdown(f"""
 | Field | Value |
 |---|---|
