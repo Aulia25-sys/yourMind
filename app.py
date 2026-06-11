@@ -579,18 +579,32 @@ def load_models():
 
     return tok, model1, le1, model2, le2
 
-def predict(text, tok, model, le):
-    inp = tok(clean_text_light(text), return_tensors="pt", truncation=True,
+def predict(text, tok, model, le, threshold=0.5):
+    # Hapus $ kalau user iseng mengetiknya — tidak berpengaruh ke model
+    cleaned = clean_text_light(text)
+    inp = tok(cleaned, return_tensors="pt", truncation=True,
                padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
         logits = model(**inp).logits
         probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
-    
-    # Menghindari error bila output probabilitas berupa skalar (binary class dengan single output logit)
+
+    # Menghindari error bila output probabilitas berupa skalar
     if probs.ndim == 0:
-        probs = np.array([1 - probs, probs])
-        
+        probs = np.array([1 - float(probs), float(probs)])
+
+    classes = list(le.classes_)
+
+    # Kalau ada threshold custom (Model 1 binary), pakai logika threshold
+    if threshold != 0.5 and "Ya" in classes:
+        ya_idx  = classes.index("Ya")
+        ya_prob = float(probs[ya_idx])
+        if ya_prob >= threshold:
+            return le.inverse_transform([ya_idx])[0], ya_prob
+        else:
+            tidak_idx = 1 - ya_idx
+            return le.inverse_transform([tidak_idx])[0], float(probs[tidak_idx])
+
     pid = int(np.argmax(probs))
     return le.inverse_transform([pid])[0], float(probs[pid])
 
@@ -644,7 +658,7 @@ if run:
         st.warning("Teks tidak boleh kosong.")
     else:
         with st.spinner("Menganalisis..."):
-            lbin, cbin = predict(text_input, tok, model1, le1)
+            lbin, cbin = predict(text_input, tok, model1, le1, threshold=0.40)
             lmul, cmul = (predict(text_input, tok, model2, le2)
                           if lbin == "Ya" else (None, None))
 
