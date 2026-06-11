@@ -3,10 +3,15 @@ import torch
 import numpy as np
 import joblib
 import re
+import os  # Digunakan untuk membaca token dari Streamlit Secrets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel, PeftConfig
+from huggingface_hub import hf_hub_download  # Digunakan untuk mengunduh file pkl dari Hugging Face Hub
 
 st.set_page_config(page_title="YourMind", page_icon="🧠", layout="centered")
+
+# Mengambil token Hugging Face dari Environment Variables / Streamlit Secrets di awal
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
 st.markdown("""
 <style>
@@ -551,20 +556,26 @@ def clean_text(text: str) -> str:
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    le1    = joblib.load(f"{M1_PATH}/label_encoder.pkl")
-    cfg1   = PeftConfig.from_pretrained(M1_PATH)
+    # 1. Download & Load Model 1 (Binary) + Mengirimkan parameter token secara eksplisit
+    le1_path = hf_hub_download(repo_id=M1_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
+    le1      = joblib.load(le1_path)
+    
+    cfg1   = PeftConfig.from_pretrained(M1_PATH, token=HF_TOKEN)
     base1  = AutoModelForSequenceClassification.from_pretrained(
         cfg1.base_model_name_or_path, num_labels=len(le1.classes_),
-        ignore_mismatched_sizes=True)
-    model1 = PeftModel.from_pretrained(base1, M1_PATH).eval().to(DEVICE)
-    tok    = AutoTokenizer.from_pretrained(M1_PATH)
+        ignore_mismatched_sizes=True, token=HF_TOKEN)
+    model1 = PeftModel.from_pretrained(base1, M1_PATH, token=HF_TOKEN).eval().to(DEVICE)
+    tok    = AutoTokenizer.from_pretrained(M1_PATH, token=HF_TOKEN)
 
-    le2    = joblib.load(f"{M2_PATH}/label_encoder.pkl")
-    cfg2   = PeftConfig.from_pretrained(M2_PATH)
+    # 2. Download & Load Model 2 (Multiclass) + Mengirimkan parameter token secara eksplisit
+    le2_path = hf_hub_download(repo_id=M2_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
+    le2      = joblib.load(le2_path)
+    
+    cfg2   = PeftConfig.from_pretrained(M2_PATH, token=HF_TOKEN)
     base2  = AutoModelForSequenceClassification.from_pretrained(
         cfg2.base_model_name_or_path, num_labels=len(le2.classes_),
-        ignore_mismatched_sizes=True)
-    model2 = PeftModel.from_pretrained(base2, M2_PATH).eval().to(DEVICE)
+        ignore_mismatched_sizes=True, token=HF_TOKEN)
+    model2 = PeftModel.from_pretrained(base2, M2_PATH, token=HF_TOKEN).eval().to(DEVICE)
 
     return tok, model1, le1, model2, le2
 
@@ -573,7 +584,13 @@ def predict(text, tok, model, le):
                padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
-        probs = torch.softmax(model(**inp).logits, dim=1).squeeze().cpu().numpy()
+        logits = model(**inp).logits
+        probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
+    
+    # Menghindari error bila output probabilitas berupa skalar (binary class dengan single output logit)
+    if probs.ndim == 0:
+        probs = np.array([1 - probs, probs])
+        
     pid = int(np.argmax(probs))
     return le.inverse_transform([pid])[0], float(probs[pid])
 
@@ -591,10 +608,6 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
-
-# token
-from huggingface_hub import login
-HF_TOKEN = os.environ.get("HF_TOKEN")
 
 # ── Load model ─────────────────────────────────────────────────
 with st.spinner("Memuat model..."):
@@ -649,7 +662,7 @@ if run:
 </div>
 """, unsafe_allow_html=True)
 
-        # Cards
+        # Cards Formatting
         cls1  = "c-distort" if lbin == "Ya" else "c-ok"
         val1  = "Ada distorsi" if lbin == "Ya" else "Tidak ada"
         conf1 = f"Confidence {cbin:.1%}"
