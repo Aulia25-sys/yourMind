@@ -3,11 +3,15 @@ import torch
 import numpy as np
 import joblib
 import re
+import os  # Digunakan untuk membaca token dari Streamlit Secrets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel, PeftConfig
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download  # Digunakan untuk mengunduh file pkl dari Hugging Face Hub
 
-st.set_page_config(page_title="MindTrace", page_icon="🧠", layout="centered")
+st.set_page_config(page_title="YourMind", page_icon="🧠", layout="centered")
+
+# Mengambil token Hugging Face dari Environment Variables / Streamlit Secrets di awal
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
 st.markdown("""
 <style>
@@ -514,21 +518,21 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
-
-
 # ── Constants ──────────────────────────────────────────────────
-MODEL_NAME = "indolem/indobert-base-uncased"
-M1_REPO    = "ulss104/yourMind-model1-binary"       # full fine-tune (tanpa LoRA)
-M2_REPO    = "ulss104/yourMind-model2-multiclass"   # IndoBERT + LoRA (PEFT)
-MAX_LENGTH = 128
+M1_PATH = "ulss104/yourMind-model1-binary"
+M2_PATH = "ulss104/yourMind-model2-multiclass"
+MAX_LENGTH = 256
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 DESCRIPTIONS = {
     "All-or-nothing"           : "Berpikir dalam kategori hitam-putih, tanpa melihat nuansa di antaranya.",
     "Discounting the positives": "Mengabaikan atau meremehkan hal-hal positif yang nyata terjadi.",
-    "Jumping to Conclusions"   : "Mengambil kesimpulan negatif tanpa bukti yang memadai (termasuk overgeneralisasi, membaca pikiran orang lain, dan meramal masa depan secara negatif).",
-    "Mental filter"            : "Fokus berlebihan pada satu detail negatif sambil mengabaikan gambaran besar, termasuk melebih-lebihkan atau meremehkan suatu hal.",
-    "Personalization and Blame": "Menyalahkan diri sendiri atas hal-hal di luar kendali, atau menganggap perasaan negatif sebagai fakta.",
+    "Emotional Reasoning"      : "Menganggap perasaan negatif sebagai kebenaran faktual.",
+    "Jumping to Conclusions"   : "Mengambil kesimpulan negatif tanpa bukti yang memadai.",
+    "Labeling"                 : "Memberi label negatif secara menyeluruh pada diri sendiri atau orang lain.",
+    "Mental filter"            : "Fokus berlebihan pada satu detail negatif, mengabaikan gambaran besar.",
+    "Overgeneralization"       : "Menarik kesimpulan luas dari satu kejadian buruk.",
+    "Personalization and Blame": "Menyalahkan diri sendiri atas hal-hal di luar kendali.",
     "Should statement"         : "Menetapkan standar kaku dengan kata 'harus' atau 'seharusnya'.",
 }
 
@@ -541,46 +545,52 @@ SAMPLES = [
 ]
 
 # ── Helpers ────────────────────────────────────────────────────
-def clean_text(text: str) -> str:
+def clean_text_light(text: str) -> str:
     text = str(text).lower()
     text = re.sub(r"http\S+|www\S+", " ", text)
     text = re.sub(r"@\w+", " ", text)
     text = re.sub(r"#", " ", text)
-    text = re.sub(r"\$", " ", text)
+    text = re.sub(r"\$", " ", text)   # hapus $ tapi tidak ekstrak dulu
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    # ── Model 1: binary, IndoBERT + LoRA (PEFT, r=16) ───────────
-    le1_path = hf_hub_download(repo_id=M1_REPO, filename="label_encoder.pkl")
+    # 1. Download & Load Model 1 (Binary) + Mengirimkan parameter token secara eksplisit
+    le1_path = hf_hub_download(repo_id=M1_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
     le1      = joblib.load(le1_path)
-    cfg1     = PeftConfig.from_pretrained(M1_REPO)
-    base1    = AutoModelForSequenceClassification.from_pretrained(
+    
+    cfg1   = PeftConfig.from_pretrained(M1_PATH, token=HF_TOKEN)
+    base1  = AutoModelForSequenceClassification.from_pretrained(
         cfg1.base_model_name_or_path, num_labels=len(le1.classes_),
-        ignore_mismatched_sizes=True
-    )
-    model1   = PeftModel.from_pretrained(base1, M1_REPO).eval().to(DEVICE)
-    tok      = AutoTokenizer.from_pretrained(M1_REPO)
+        ignore_mismatched_sizes=True, token=HF_TOKEN)
+    model1 = PeftModel.from_pretrained(base1, M1_PATH, token=HF_TOKEN).eval().to(DEVICE)
+    tok    = AutoTokenizer.from_pretrained(M1_PATH, token=HF_TOKEN)
 
-    # ── Model 2: multi-class, IndoBERT + LoRA (PEFT, r=32) ──────
-    le2_path = hf_hub_download(repo_id=M2_REPO, filename="label_encoder.pkl")
+    # 2. Download & Load Model 2 (Multiclass) + Mengirimkan parameter token secara eksplisit
+    le2_path = hf_hub_download(repo_id=M2_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
     le2      = joblib.load(le2_path)
-    cfg2     = PeftConfig.from_pretrained(M2_REPO)
-    base2    = AutoModelForSequenceClassification.from_pretrained(
+    
+    cfg2   = PeftConfig.from_pretrained(M2_PATH, token=HF_TOKEN)
+    base2  = AutoModelForSequenceClassification.from_pretrained(
         cfg2.base_model_name_or_path, num_labels=len(le2.classes_),
-        ignore_mismatched_sizes=True
-    )
-    model2   = PeftModel.from_pretrained(base2, M2_REPO).eval().to(DEVICE)
+        ignore_mismatched_sizes=True, token=HF_TOKEN)
+    model2 = PeftModel.from_pretrained(base2, M2_PATH, token=HF_TOKEN).eval().to(DEVICE)
 
     return tok, model1, le1, model2, le2
 
 def predict(text, tok, model, le):
-    inp = tok(clean_text(text), return_tensors="pt", truncation=True,
-              padding=True, max_length=MAX_LENGTH)
+    inp = tok(clean_text_light(text), return_tensors="pt", truncation=True,
+               padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
-        probs = torch.softmax(model(**inp).logits, dim=1).squeeze().cpu().numpy()
+        logits = model(**inp).logits
+        probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
+    
+    # Menghindari error bila output probabilitas berupa skalar (binary class dengan single output logit)
+    if probs.ndim == 0:
+        probs = np.array([1 - probs, probs])
+        
     pid = int(np.argmax(probs))
     return le.inverse_transform([pid])[0], float(probs[pid])
 
@@ -588,10 +598,10 @@ def predict(text, tok, model, le):
 st.markdown("""
 <div class="hero">
   <div class="hero-eyebrow"><span class="hero-eyebrow-dot"></span>Cognitive Intelligence</div>
-  <div class="hero-title">MindTrace</div>
+  <div class="hero-title">Your Mind?</div>
   <div class="hero-sub">
     Deteksi dan klasifikasi cognitive distortion dari teks bahasa Indonesia
-    menggunakan two-stage IndoBERT + LoRA (PEFT).
+    menggunakan two-stage IndoBERT + LoRA.
   </div>
   <div class="hero-status">
     <span class="hero-dot"></span>Model siap digunakan
@@ -600,7 +610,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Load model ─────────────────────────────────────────────────
-with st.spinner("Memuat model dari Hugging Face Hub..."):
+with st.spinner("Memuat model..."):
     tok, model1, le1, model2, le2 = load_models()
 
 # ── Input ──────────────────────────────────────────────────────
@@ -652,7 +662,7 @@ if run:
 </div>
 """, unsafe_allow_html=True)
 
-        # Cards
+        # Cards Formatting
         cls1  = "c-distort" if lbin == "Ya" else "c-ok"
         val1  = "Ada distorsi" if lbin == "Ya" else "Tidak ada"
         conf1 = f"Confidence {cbin:.1%}"
@@ -714,23 +724,21 @@ if run:
             safe_text = text_input[:120].replace('$', '\\$')
             if len(text_input) > 120:
                 safe_text += "…"
-            safe_cleaned = clean_text(text_input)[:100].replace('$', '\\$')
+            safe_cleaned = clean_text_light(text_input)[:100].replace('$', '\\$')
             st.markdown(f"""
 | Field | Value |
 |---|---|
 | Teks asli | {safe_text} |
 | Setelah preprocessing | {safe_cleaned} |
-| Model 1 output (binary) | {lbin} ({cbin:.4f}) |
-| Model 2 output (jenis distorsi) | {f"{lmul} ({cmul:.4f})" if lmul else "—"} |
-| Model 1 repo | {M1_REPO} |
-| Model 2 repo | {M2_REPO} |
+| Model 1 output | {lbin} ({cbin:.4f}) |
+| Model 2 output | {f"{lmul} ({cmul:.4f})" if lmul else "—"} |
 | Device | {str(DEVICE).upper()} |
 """)
 
 # ── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="mt-footer">
-  MindTrace &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA (PEFT) &nbsp;·&nbsp;
+  Your Mind &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA &nbsp;·&nbsp;
   Dataset: Cognitive Distortion Bahasa Indonesia
 </div>
 """, unsafe_allow_html=True)
