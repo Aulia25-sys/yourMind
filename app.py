@@ -552,15 +552,18 @@ def clean_text(text: str) -> str:
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    # ── Model 1: binary, full fine-tune (tanpa LoRA) ────────────
+    # ── Model 1: binary, IndoBERT + LoRA (PEFT, r=16) ───────────
     le1_path = hf_hub_download(repo_id=M1_REPO, filename="label_encoder.pkl")
     le1      = joblib.load(le1_path)
+    cfg1     = PeftConfig.from_pretrained(M1_REPO)
+    base1    = AutoModelForSequenceClassification.from_pretrained(
+        cfg1.base_model_name_or_path, num_labels=len(le1.classes_),
+        ignore_mismatched_sizes=True
+    )
+    model1   = PeftModel.from_pretrained(base1, M1_REPO).eval().to(DEVICE)
     tok      = AutoTokenizer.from_pretrained(M1_REPO)
-    model1   = AutoModelForSequenceClassification.from_pretrained(
-        M1_REPO, num_labels=len(le1.classes_), ignore_mismatched_sizes=True
-    ).eval().to(DEVICE)
 
-    # ── Model 2: multi-class, IndoBERT + LoRA (PEFT) ────────────
+    # ── Model 2: multi-class, IndoBERT + LoRA (PEFT, r=32) ──────
     le2_path = hf_hub_download(repo_id=M2_REPO, filename="label_encoder.pkl")
     le2      = joblib.load(le2_path)
     cfg2     = PeftConfig.from_pretrained(M2_REPO)
@@ -588,7 +591,7 @@ st.markdown("""
   <div class="hero-title">MindTrace</div>
   <div class="hero-sub">
     Deteksi dan klasifikasi cognitive distortion dari teks bahasa Indonesia
-    menggunakan two-stage IndoBERT (Model 1: full fine-tune, Model 2: + LoRA).
+    menggunakan two-stage IndoBERT + LoRA (PEFT).
   </div>
   <div class="hero-status">
     <span class="hero-dot"></span>Model siap digunakan
@@ -727,7 +730,7 @@ if run:
 # ── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="mt-footer">
-  MindTrace &nbsp;·&nbsp; IndoLEM-IndoBERT (Model 1 full fine-tune + Model 2 LoRA) &nbsp;·&nbsp;
+  MindTrace &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA (PEFT) &nbsp;·&nbsp;
   Dataset: Cognitive Distortion Bahasa Indonesia
 </div>
 """, unsafe_allow_html=True)
