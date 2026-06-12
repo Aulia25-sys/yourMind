@@ -3,15 +3,10 @@ import torch
 import numpy as np
 import joblib
 import re
-import os  # Digunakan untuk membaca token dari Streamlit Secrets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel, PeftConfig
-from huggingface_hub import hf_hub_download  # Digunakan untuk mengunduh file pkl dari Hugging Face Hub
 
-st.set_page_config(page_title="YourMind", page_icon="🧠", layout="centered")
-
-# Mengambil token Hugging Face dari Environment Variables / Streamlit Secrets di awal
-HF_TOKEN = os.environ.get("HF_TOKEN")
+st.set_page_config(page_title="MindTrace", page_icon="🧠", layout="centered")
 
 st.markdown("""
 <style>
@@ -275,8 +270,6 @@ div[data-testid="stButton"] > button:active {
     color: #534AB7 !important;
     -webkit-text-fill-color: #534AB7 !important;
 }
-
-/* distorsi card — subtle left accent */
 .c-distort {
     border-color: #C8C4EF;
     border-left: 4px solid #534AB7;
@@ -285,8 +278,6 @@ div[data-testid="stButton"] > button:active {
     color: #16123A !important;
     -webkit-text-fill-color: #16123A !important;
 }
-
-/* ok / tidak ada card */
 .c-ok {
     border-color: #A8DEC9;
     border-left: 4px solid #22B07D;
@@ -303,8 +294,6 @@ div[data-testid="stButton"] > button:active {
     color: #22B07D !important;
     -webkit-text-fill-color: #22B07D !important;
 }
-
-/* jenis distorsi — ghost/muted style like reference */
 .c-type {
     border-color: #C8C4EF;
     background: #F5F4FC;
@@ -321,8 +310,6 @@ div[data-testid="stButton"] > button:active {
     color: #9590C8 !important;
     -webkit-text-fill-color: #9590C8 !important;
 }
-
-/* neutral / no type detected */
 .c-neutral {
     border-color: #E0DFF5;
     background: #F9F8FE;
@@ -338,7 +325,7 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ══════════════════════════════════════════
-   INSIGHT PANEL — flat, border only
+   INSIGHT PANEL
    ══════════════════════════════════════════ */
 .insight {
     border-radius: 18px;
@@ -482,7 +469,6 @@ div[data-testid="stExpander"] tbody tr:last-child td {
 div[data-testid="stExpander"] tbody tr:nth-child(even) td {
     background: #FAFAFE !important;
 }
-/* Sample buttons inside expander */
 div[data-testid="stExpander"] div[data-testid="stButton"] > button {
     background: #F5F4FC !important;
     color: #16123A !important;
@@ -519,9 +505,11 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 """, unsafe_allow_html=True)
 
 # ── Constants ──────────────────────────────────────────────────
-M1_PATH = "ulss104/yourMind-model1-binary"
-M2_PATH = "ulss104/yourMind-model2-multiclass"
-MAX_LENGTH = 256
+# Model 1: full fine-tune (tanpa LoRA)
+# Model 2: LoRA
+M1_PATH    = "./model_1_binary"
+M2_PATH    = "./model_2_multiclass"
+MAX_LENGTH = 128
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 DESCRIPTIONS = {
@@ -545,66 +533,44 @@ SAMPLES = [
 ]
 
 # ── Helpers ────────────────────────────────────────────────────
-def clean_text_light(text: str) -> str:
+def clean_text(text: str) -> str:
     text = str(text).lower()
     text = re.sub(r"http\S+|www\S+", " ", text)
     text = re.sub(r"@\w+", " ", text)
     text = re.sub(r"#", " ", text)
-    text = re.sub(r"\$", " ", text)   # hapus $ tapi tidak ekstrak dulu
+    text = text.replace("$", " ")
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    # 1. Download & Load Model 1 (Binary) + Mengirimkan parameter token secara eksplisit
-    le1_path = hf_hub_download(repo_id=M1_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
-    le1      = joblib.load(le1_path)
-    
-    cfg1   = PeftConfig.from_pretrained(M1_PATH, token=HF_TOKEN)
-    base1  = AutoModelForSequenceClassification.from_pretrained(
-        cfg1.base_model_name_or_path, num_labels=len(le1.classes_),
-        ignore_mismatched_sizes=True, token=HF_TOKEN)
-    model1 = PeftModel.from_pretrained(base1, M1_PATH, token=HF_TOKEN).eval().to(DEVICE)
-    tok    = AutoTokenizer.from_pretrained(M1_PATH, token=HF_TOKEN)
+    # ── Model 1: full fine-tune (bukan LoRA) ──
+    le1    = joblib.load(f"{M1_PATH}/label_encoder_binary.pkl")
+    tok    = AutoTokenizer.from_pretrained(M1_PATH)
+    model1 = AutoModelForSequenceClassification.from_pretrained(
+        M1_PATH,
+        num_labels=len(le1.classes_),
+        ignore_mismatched_sizes=True
+    ).eval().to(DEVICE)
 
-    # 2. Download & Load Model 2 (Multiclass) + Mengirimkan parameter token secara eksplisit
-    le2_path = hf_hub_download(repo_id=M2_PATH, filename="label_encoder.pkl", token=HF_TOKEN)
-    le2      = joblib.load(le2_path)
-    
-    cfg2   = PeftConfig.from_pretrained(M2_PATH, token=HF_TOKEN)
+    # ── Model 2: LoRA ──
+    le2    = joblib.load(f"{M2_PATH}/label_encoder_multi.pkl")
+    cfg2   = PeftConfig.from_pretrained(M2_PATH)
     base2  = AutoModelForSequenceClassification.from_pretrained(
-        cfg2.base_model_name_or_path, num_labels=len(le2.classes_),
-        ignore_mismatched_sizes=True, token=HF_TOKEN)
-    model2 = PeftModel.from_pretrained(base2, M2_PATH, token=HF_TOKEN).eval().to(DEVICE)
+        cfg2.base_model_name_or_path,
+        num_labels=len(le2.classes_),
+        ignore_mismatched_sizes=True
+    )
+    model2 = PeftModel.from_pretrained(base2, M2_PATH).eval().to(DEVICE)
 
     return tok, model1, le1, model2, le2
 
-def predict(text, tok, model, le, threshold=0.5):
-    # Hapus $ kalau user iseng mengetiknya — tidak berpengaruh ke model
-    cleaned = clean_text_light(text)
-    inp = tok(cleaned, return_tensors="pt", truncation=True,
+def predict(text, tok, model, le):
+    inp = tok(clean_text(text), return_tensors="pt", truncation=True,
                padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
-        logits = model(**inp).logits
-        probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
-
-    # Menghindari error bila output probabilitas berupa skalar
-    if probs.ndim == 0:
-        probs = np.array([1 - float(probs), float(probs)])
-
-    classes = list(le.classes_)
-
-    # Kalau ada threshold custom (Model 1 binary), pakai logika threshold
-    if threshold != 0.5 and "Ya" in classes:
-        ya_idx  = classes.index("Ya")
-        ya_prob = float(probs[ya_idx])
-        if ya_prob >= threshold:
-            return le.inverse_transform([ya_idx])[0], ya_prob
-        else:
-            tidak_idx = 1 - ya_idx
-            return le.inverse_transform([tidak_idx])[0], float(probs[tidak_idx])
-
+        probs = torch.softmax(model(**inp).logits, dim=1).squeeze().cpu().numpy()
     pid = int(np.argmax(probs))
     return le.inverse_transform([pid])[0], float(probs[pid])
 
@@ -612,10 +578,10 @@ def predict(text, tok, model, le, threshold=0.5):
 st.markdown("""
 <div class="hero">
   <div class="hero-eyebrow"><span class="hero-eyebrow-dot"></span>Cognitive Intelligence</div>
-  <div class="hero-title">Your Mind?</div>
+  <div class="hero-title">MindTrace</div>
   <div class="hero-sub">
     Deteksi dan klasifikasi cognitive distortion dari teks bahasa Indonesia
-    menggunakan two-stage IndoBERT + LoRA.
+    menggunakan two-stage IndoBERT.
   </div>
   <div class="hero-status">
     <span class="hero-dot"></span>Model siap digunakan
@@ -658,7 +624,7 @@ if run:
         st.warning("Teks tidak boleh kosong.")
     else:
         with st.spinner("Menganalisis..."):
-            lbin, cbin = predict(text_input, tok, model1, le1, threshold=0.40)
+            lbin, cbin = predict(text_input, tok, model1, le1)
             lmul, cmul = (predict(text_input, tok, model2, le2)
                           if lbin == "Ya" else (None, None))
 
@@ -676,7 +642,6 @@ if run:
 </div>
 """, unsafe_allow_html=True)
 
-        # Cards Formatting
         cls1  = "c-distort" if lbin == "Ya" else "c-ok"
         val1  = "Ada distorsi" if lbin == "Ya" else "Tidak ada"
         conf1 = f"Confidence {cbin:.1%}"
@@ -738,7 +703,7 @@ if run:
             safe_text = text_input[:120].replace('$', '\\$')
             if len(text_input) > 120:
                 safe_text += "…"
-            safe_cleaned = clean_text_light(text_input)[:100].replace('$', '\\$')
+            safe_cleaned = clean_text(text_input)[:100].replace('$', '\\$')
             st.markdown(f"""
 | Field | Value |
 |---|---|
@@ -752,7 +717,7 @@ if run:
 # ── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="mt-footer">
-  Your Mind &nbsp;·&nbsp; IndoLEM-IndoBERT + LoRA &nbsp;·&nbsp;
+  MindTrace &nbsp;·&nbsp; IndoBERT (Binary) + IndoBERT LoRA (Multiclass) &nbsp;·&nbsp;
   Dataset: Cognitive Distortion Bahasa Indonesia
 </div>
 """, unsafe_allow_html=True)
