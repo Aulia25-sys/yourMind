@@ -1,6 +1,8 @@
 streamlit
 torch
+numpy
+joblib
 transformers
 peft
-joblib
-scikit-learn
+huggingface_hub
+ 
