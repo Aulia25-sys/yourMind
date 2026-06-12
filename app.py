@@ -507,8 +507,8 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 # ── Constants ──────────────────────────────────────────────────
 # Model 1: full fine-tune (tanpa LoRA)
 # Model 2: LoRA
-M1_PATH    = "./model_1_binary"
-M2_PATH    = "./model_2_multiclass"
+M1_PATH    = "./yourMind-model1-binary"
+M2_PATH    = "./yourMind-model2-multiclass"
 MAX_LENGTH = 128
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
