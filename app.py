@@ -5,6 +5,7 @@ import joblib
 import re
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from peft import PeftModel, PeftConfig
+from huggingface_hub import hf_hub_download
 
 st.set_page_config(page_title="MindTrace", page_icon="🧠", layout="centered")
 
@@ -270,6 +271,8 @@ div[data-testid="stButton"] > button:active {
     color: #534AB7 !important;
     -webkit-text-fill-color: #534AB7 !important;
 }
+
+/* distorsi card — subtle left accent */
 .c-distort {
     border-color: #C8C4EF;
     border-left: 4px solid #534AB7;
@@ -278,6 +281,8 @@ div[data-testid="stButton"] > button:active {
     color: #16123A !important;
     -webkit-text-fill-color: #16123A !important;
 }
+
+/* ok / tidak ada card */
 .c-ok {
     border-color: #A8DEC9;
     border-left: 4px solid #22B07D;
@@ -294,6 +299,8 @@ div[data-testid="stButton"] > button:active {
     color: #22B07D !important;
     -webkit-text-fill-color: #22B07D !important;
 }
+
+/* jenis distorsi — ghost/muted style like reference */
 .c-type {
     border-color: #C8C4EF;
     background: #F5F4FC;
@@ -310,6 +317,8 @@ div[data-testid="stButton"] > button:active {
     color: #9590C8 !important;
     -webkit-text-fill-color: #9590C8 !important;
 }
+
+/* neutral / no type detected */
 .c-neutral {
     border-color: #E0DFF5;
     background: #F9F8FE;
@@ -325,7 +334,7 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ══════════════════════════════════════════
-   INSIGHT PANEL
+   INSIGHT PANEL — flat, border only
    ══════════════════════════════════════════ */
 .insight {
     border-radius: 18px;
@@ -469,6 +478,7 @@ div[data-testid="stExpander"] tbody tr:last-child td {
 div[data-testid="stExpander"] tbody tr:nth-child(even) td {
     background: #FAFAFE !important;
 }
+/* Sample buttons inside expander */
 div[data-testid="stExpander"] div[data-testid="stButton"] > button {
     background: #F5F4FC !important;
     color: #16123A !important;
@@ -504,23 +514,21 @@ div[data-testid="stExpander"] div[data-testid="stButton"] > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+
+
 # ── Constants ──────────────────────────────────────────────────
-# Model 1: full fine-tune (tanpa LoRA)
-# Model 2: LoRA
-M1_PATH    = "./yourMind-model1-binary"
-M2_PATH    = "./yourMind-model2-multiclass"
+MODEL_NAME = "indolem/indobert-base-uncased"
+M1_REPO    = "ulss104/yourMind-model1-binary"       # full fine-tune (tanpa LoRA)
+M2_REPO    = "ulss104/yourMind-model2-multiclass"   # IndoBERT + LoRA (PEFT)
 MAX_LENGTH = 128
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 DESCRIPTIONS = {
     "All-or-nothing"           : "Berpikir dalam kategori hitam-putih, tanpa melihat nuansa di antaranya.",
     "Discounting the positives": "Mengabaikan atau meremehkan hal-hal positif yang nyata terjadi.",
-    "Emotional Reasoning"      : "Menganggap perasaan negatif sebagai kebenaran faktual.",
-    "Jumping to Conclusions"   : "Mengambil kesimpulan negatif tanpa bukti yang memadai.",
-    "Labeling"                 : "Memberi label negatif secara menyeluruh pada diri sendiri atau orang lain.",
-    "Mental filter"            : "Fokus berlebihan pada satu detail negatif, mengabaikan gambaran besar.",
-    "Overgeneralization"       : "Menarik kesimpulan luas dari satu kejadian buruk.",
-    "Personalization and Blame": "Menyalahkan diri sendiri atas hal-hal di luar kendali.",
+    "Jumping to Conclusions"   : "Mengambil kesimpulan negatif tanpa bukti yang memadai (termasuk overgeneralisasi, membaca pikiran orang lain, dan meramal masa depan secara negatif).",
+    "Mental filter"            : "Fokus berlebihan pada satu detail negatif sambil mengabaikan gambaran besar, termasuk melebih-lebihkan atau meremehkan suatu hal.",
+    "Personalization and Blame": "Menyalahkan diri sendiri atas hal-hal di luar kendali, atau menganggap perasaan negatif sebagai fakta.",
     "Should statement"         : "Menetapkan standar kaku dengan kata 'harus' atau 'seharusnya'.",
 }
 
@@ -538,36 +546,35 @@ def clean_text(text: str) -> str:
     text = re.sub(r"http\S+|www\S+", " ", text)
     text = re.sub(r"@\w+", " ", text)
     text = re.sub(r"#", " ", text)
-    text = text.replace("$", " ")
+    text = re.sub(r"\$", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 @st.cache_resource(show_spinner=False)
 def load_models():
-    # ── Model 1: full fine-tune (bukan LoRA) ──
-    le1    = joblib.load(f"{M1_PATH}/label_encoder_binary.pkl")
-    tok    = AutoTokenizer.from_pretrained(M1_PATH)
-    model1 = AutoModelForSequenceClassification.from_pretrained(
-        M1_PATH,
-        num_labels=len(le1.classes_),
-        ignore_mismatched_sizes=True
+    # ── Model 1: binary, full fine-tune (tanpa LoRA) ────────────
+    le1_path = hf_hub_download(repo_id=M1_REPO, filename="label_encoder.pkl")
+    le1      = joblib.load(le1_path)
+    tok      = AutoTokenizer.from_pretrained(M1_REPO)
+    model1   = AutoModelForSequenceClassification.from_pretrained(
+        M1_REPO, num_labels=len(le1.classes_), ignore_mismatched_sizes=True
     ).eval().to(DEVICE)
 
-    # ── Model 2: LoRA ──
-    le2    = joblib.load(f"{M2_PATH}/label_encoder_multi.pkl")
-    cfg2   = PeftConfig.from_pretrained(M2_PATH)
-    base2  = AutoModelForSequenceClassification.from_pretrained(
-        cfg2.base_model_name_or_path,
-        num_labels=len(le2.classes_),
+    # ── Model 2: multi-class, IndoBERT + LoRA (PEFT) ────────────
+    le2_path = hf_hub_download(repo_id=M2_REPO, filename="label_encoder.pkl")
+    le2      = joblib.load(le2_path)
+    cfg2     = PeftConfig.from_pretrained(M2_REPO)
+    base2    = AutoModelForSequenceClassification.from_pretrained(
+        cfg2.base_model_name_or_path, num_labels=len(le2.classes_),
         ignore_mismatched_sizes=True
     )
-    model2 = PeftModel.from_pretrained(base2, M2_PATH).eval().to(DEVICE)
+    model2   = PeftModel.from_pretrained(base2, M2_REPO).eval().to(DEVICE)
 
     return tok, model1, le1, model2, le2
 
 def predict(text, tok, model, le):
     inp = tok(clean_text(text), return_tensors="pt", truncation=True,
-               padding=True, max_length=MAX_LENGTH)
+              padding=True, max_length=MAX_LENGTH)
     inp = {k: v.to(DEVICE) for k, v in inp.items()}
     with torch.no_grad():
         probs = torch.softmax(model(**inp).logits, dim=1).squeeze().cpu().numpy()
@@ -581,7 +588,7 @@ st.markdown("""
   <div class="hero-title">MindTrace</div>
   <div class="hero-sub">
     Deteksi dan klasifikasi cognitive distortion dari teks bahasa Indonesia
-    menggunakan two-stage IndoBERT.
+    menggunakan two-stage IndoBERT (Model 1: full fine-tune, Model 2: + LoRA).
   </div>
   <div class="hero-status">
     <span class="hero-dot"></span>Model siap digunakan
@@ -590,7 +597,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Load model ─────────────────────────────────────────────────
-with st.spinner("Memuat model..."):
+with st.spinner("Memuat model dari Hugging Face Hub..."):
     tok, model1, le1, model2, le2 = load_models()
 
 # ── Input ──────────────────────────────────────────────────────
@@ -642,6 +649,7 @@ if run:
 </div>
 """, unsafe_allow_html=True)
 
+        # Cards
         cls1  = "c-distort" if lbin == "Ya" else "c-ok"
         val1  = "Ada distorsi" if lbin == "Ya" else "Tidak ada"
         conf1 = f"Confidence {cbin:.1%}"
@@ -709,15 +717,17 @@ if run:
 |---|---|
 | Teks asli | {safe_text} |
 | Setelah preprocessing | {safe_cleaned} |
-| Model 1 output | {lbin} ({cbin:.4f}) |
-| Model 2 output | {f"{lmul} ({cmul:.4f})" if lmul else "—"} |
+| Model 1 output (binary) | {lbin} ({cbin:.4f}) |
+| Model 2 output (jenis distorsi) | {f"{lmul} ({cmul:.4f})" if lmul else "—"} |
+| Model 1 repo | {M1_REPO} |
+| Model 2 repo | {M2_REPO} |
 | Device | {str(DEVICE).upper()} |
 """)
 
 # ── Footer ─────────────────────────────────────────────────────
 st.markdown("""
 <div class="mt-footer">
-  MindTrace &nbsp;·&nbsp; IndoBERT (Binary) + IndoBERT LoRA (Multiclass) &nbsp;·&nbsp;
+  MindTrace &nbsp;·&nbsp; IndoLEM-IndoBERT (Model 1 full fine-tune + Model 2 LoRA) &nbsp;·&nbsp;
   Dataset: Cognitive Distortion Bahasa Indonesia
 </div>
 """, unsafe_allow_html=True)
